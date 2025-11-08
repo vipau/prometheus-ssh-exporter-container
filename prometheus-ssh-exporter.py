@@ -1,6 +1,7 @@
 import prometheus_client
 import time
 import argparse
+import os
 import utmp
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler, FileModifiedEvent
@@ -44,23 +45,22 @@ class Session:
 
 
 def get_utmp_data() -> list[Session]:
-    """
-    Returns a list of User Objects
-    The function uses the utmp library. The utmp file contains information about ALL currently logged in users,
-    including local users (not SSH sessions). We filter out the local users by checking if the remote IP address
-    is empty and set the hostname for the local sessions to "localhost".
-    """
-    users : list[Session] = []
+    users: list[Session] = []
+    if not os.path.exists('/var/run/utmp'):
+        return users
     with open('/var/run/utmp', 'rb') as fd:
         buffer = fd.read()
         for record in utmp.read(buffer):
-            if record.type == utmp.UTmpRecordType.user_process:
-                if record.host != '':
-                    users.append(Session(record.user, record.line, record.host, record.sec))
-                else:
-                    users.append(Session(record.user, record.line, 'localhost', record.sec))
+            try:
+                if record.type == utmp.UTmpRecordType.user_process:
+                    host = record.host if record.host else 'localhost'
+                    users.append(Session(record.user, record.line, host, record.sec))
+            except UnicodeDecodeError:
+                continue
+            except Exception as e:
+                print(f"Skipping bad utmp record: {e}")
+                continue
     return users
-
 
 
 def handle_sessions_changed() -> None:
