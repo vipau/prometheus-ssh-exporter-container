@@ -48,18 +48,28 @@ def get_utmp_data() -> list[Session]:
     users: list[Session] = []
     if not os.path.exists('/var/run/utmp'):
         return users
+
     with open('/var/run/utmp', 'rb') as fd:
         buffer = fd.read()
-        for record in utmp.read(buffer):
+        reader = utmp.read(buffer)  # iterator that may raise during iteration
+        while True:
             try:
-                if record.type == utmp.UTmpRecordType.user_process:
-                    host = record.host if record.host else 'localhost'
-                    users.append(Session(record.user, record.line, host, record.sec))
+                record = next(reader)
+            except StopIteration:
+                break
             except UnicodeDecodeError:
+                # skip corrupted entry that failed while decoding internal fields
                 continue
             except Exception as e:
-                print(f"Skipping bad utmp record: {e}")
+                # optional: log unexpected errors and continue
+                print(f"Skipping bad utmp record (unexpected): {e}")
                 continue
+
+            # safe to use record here
+            if record.type == utmp.UTmpRecordType.user_process:
+                host = record.host if record.host else 'localhost'
+                users.append(Session(record.user, record.line, host, record.sec))
+
     return users
 
 
